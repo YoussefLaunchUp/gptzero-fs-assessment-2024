@@ -3,7 +3,7 @@ const cors = require("cors");
 const { WebSocketServer, WebSocket } = require("ws");
 
 const { getRichieRichResponse } = require("./clients/richieRich");
-const RRML2HTML = require("./utils/RRML2HTML");
+const { RRML2HTML, incompleteRRML2HTML } = require("./utils/RRML2HTML");
 
 const PORT = 8081;
 const app = express();
@@ -11,7 +11,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// HTTP endpoint for the existing functionality
 app.post("/", async (req, res) => {
   const requestPrompt = req.body.prompt;
   const response = await getRichieRichResponse(requestPrompt);
@@ -22,10 +21,12 @@ app.post("/", async (req, res) => {
 // Create a WebSocket server
 const wss = new WebSocketServer({ port: 8083 });
 
-wss.on("connection", function connection(ws) {
+wss.on("connection", (ws) => {
   console.log("WebSocket connection established");
 
-  ws.on("message", async function message(data) {
+  let accumulatedResponse = "";
+
+  ws.on("message", async (data) => {
     const requestPrompt = data.toString();
     console.log("Received:", requestPrompt);
 
@@ -37,8 +38,14 @@ wss.on("connection", function connection(ws) {
     });
 
     externalWebSocket.on("message", (externalData) => {
-      const responseHTML = RRML2HTML(externalData.toString());
-      ws.send(responseHTML);
+      accumulatedResponse += externalData.toString();
+      const { complete, incomplete } = incompleteRRML2HTML(accumulatedResponse);
+      accumulatedResponse = incomplete;
+
+      if (complete) {
+        console.log("sending complete section:", complete);
+        ws.send(complete);
+      }
     });
 
     externalWebSocket.on("error", (err) => {
@@ -50,6 +57,10 @@ wss.on("connection", function connection(ws) {
     });
 
     externalWebSocket.on("close", () => {
+      // Send any leftover incomplete section
+      if (accumulatedResponse) {
+        ws.send(RRML2HTML(accumulatedResponse));
+      }
       console.log("External WebSocket connection closed");
       ws.close();
     });

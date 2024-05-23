@@ -13,6 +13,7 @@ export default function Home() {
   const [prompt, setPrompt] = useState("");
   const [collectionError, setError] = useState(null);
   const scrollContainerRef = useRef(null);
+  const wsRef = useRef(null);
 
   const handleTextAreaChange = (event) => {
     setPrompt(event.target.value);
@@ -29,6 +30,7 @@ export default function Home() {
   };
 
   const addResponseMessage = (response) => {
+    console.log("response", response);
     setMessages((prev) => {
       // Check if the last message is from richieRich
       const lastMessageIndex = prev.length - 1;
@@ -62,8 +64,14 @@ export default function Home() {
     setIsLoadingResponse(true);
     addMessage(prompt, agentTypes.user);
 
+    // Close the previous WebSocket connection if it exists
+    if (wsRef.current) {
+      wsRef.current.close();
+    }
+
     // Establish WebSocket connection
     const ws = new WebSocket("ws://localhost:8083");
+    wsRef.current = ws;
 
     ws.onopen = () => {
       ws.send(prompt);
@@ -71,6 +79,7 @@ export default function Home() {
     };
 
     ws.onmessage = (event) => {
+      console.log("WebSocket message:", event.data);
       addResponseMessage(event.data);
     };
 
@@ -83,8 +92,18 @@ export default function Home() {
     ws.onclose = () => {
       console.log("WebSocket connection closed");
       setIsLoadingResponse(false);
+      wsRef.current = null;
     };
   };
+
+  useEffect(() => {
+    return () => {
+      // Close the WebSocket connection when the component unmounts
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (scrollContainerRef.current) {
