@@ -1,6 +1,5 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
-import { getPromptResponse } from "../../api/getPromptResponse";
 import { ChatResponse, ChatPrompt, TextArea } from "../components/chat";
 
 const agentTypes = {
@@ -12,7 +11,7 @@ export default function Home() {
   const [isLoadingResponse, setIsLoadingResponse] = useState(false);
   const [messages, setMessages] = useState([]);
   const [prompt, setPrompt] = useState("");
-  const [error, setError] = useState(null);
+  const [collectionError, setError] = useState(null);
   const scrollContainerRef = useRef(null);
 
   const handleTextAreaChange = (event) => {
@@ -29,28 +28,69 @@ export default function Home() {
     ]);
   };
 
-  const handleSubmit = async () => {
+  const addResponseMessage = (response) => {
+    setMessages((prev) => {
+      // Check if the last message is from richieRich
+      const lastMessageIndex = prev.length - 1;
+      if (
+        lastMessageIndex >= 0 &&
+        prev[lastMessageIndex].agent === agentTypes.richieRich
+      ) {
+        // Append to the last message
+        const updatedMessages = [...prev];
+        updatedMessages[lastMessageIndex].contents += response;
+        return updatedMessages;
+      } else {
+        // Create a new message
+        return [
+          ...prev,
+          {
+            agent: agentTypes.richieRich,
+            contents: response,
+          },
+        ];
+      }
+    });
+  };
+
+  const handleSubmit = () => {
     if (!prompt) {
       setError("Please enter a prompt.");
       return;
     }
     setError(null);
-    try {
-      setIsLoadingResponse(true);
-      addMessage(prompt, agentTypes.user);
-      const response = await getPromptResponse(prompt);
-      addMessage(response, agentTypes.richieRich);
+    setIsLoadingResponse(true);
+    addMessage(prompt, agentTypes.user);
+
+    // Establish WebSocket connection
+    const ws = new WebSocket("ws://localhost:8083");
+
+    ws.onopen = () => {
+      ws.send(prompt);
       setPrompt("");
-      setIsLoadingResponse(false);
-    } catch (error) {
+    };
+
+    ws.onmessage = (event) => {
+      addResponseMessage(event.data);
+    };
+
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
       setError("An error occurred. Please try again.");
       setIsLoadingResponse(false);
-    }
+    };
+
+    ws.onclose = () => {
+      console.log("WebSocket connection closed");
+      setIsLoadingResponse(false);
+    };
   };
 
   useEffect(() => {
-    scrollContainerRef.current.scrollTop =
-      scrollContainerRef.current.scrollHeight;
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop =
+        scrollContainerRef.current.scrollHeight;
+    }
   }, [messages]);
 
   return (
@@ -64,17 +104,19 @@ export default function Home() {
             <ChatPrompt key={index} prompt={message.contents} />
           ) : (
             <ChatResponse key={index} response={message.contents} />
-          ),
+          )
         )}
       </div>
       <TextArea
         onChange={handleTextAreaChange}
         onSubmit={handleSubmit}
         isLoading={isLoadingResponse}
-        hasError={error !== null}
+        hasError={collectionError !== null}
       />
-      {error && (
-        <div className="absolute bottom-0 mb-2 text-red-500">{error}</div>
+      {collectionError && (
+        <div className="absolute bottom-0 mb-2 text-red-500">
+          {collectionError}
+        </div>
       )}
     </main>
   );
